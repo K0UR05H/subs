@@ -1,5 +1,7 @@
 use std::str::Utf8Error;
 
+pub type Line = Vec<u8>;
+
 #[derive(Debug, PartialEq)]
 pub struct Timecode {
     pub hours: u8,
@@ -13,7 +15,7 @@ pub struct SubRip {
     pub position: usize,
     pub start: Timecode,
     pub end: Timecode,
-    pub text: Vec<Vec<u8>>,
+    pub text: Vec<Line>,
 }
 
 impl SubRip {

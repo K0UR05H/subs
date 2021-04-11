@@ -1,4 +1,4 @@
-use super::format::{SubRip, Timecode};
+use super::format::{Line, SubRip, Timecode};
 use std::{
     io::{BufRead, BufReader, Read},
     str::Utf8Error,
@@ -8,7 +8,7 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub struct SubRipParser<T: Read> {
     subtitle: BufReader<T>,
-    buffer: Vec<u8>,
+    buffer: Line,
 }
 
 impl<T: Read> SubRipParser<T> {
@@ -85,7 +85,7 @@ impl<T: Read> SubRipParser<T> {
         })
     }
 
-    fn parse_text(&mut self) -> Option<Vec<Vec<u8>>> {
+    fn parse_text(&mut self) -> Option<Vec<Line>> {
         let mut text = Vec::new();
         while let Ok(Some(line)) = self.read_line(|buf| {
             if buf.is_empty() {
@@ -104,7 +104,7 @@ impl<T: Read> SubRipParser<T> {
         }
     }
 
-    fn read_line<R, F: FnOnce(&Vec<u8>) -> Result<R>>(&mut self, f: F) -> Result<R> {
+    fn read_line<R, F: FnOnce(&Line) -> Result<R>>(&mut self, f: F) -> Result<R> {
         self.subtitle.read_until(b'\n', &mut self.buffer)?;
         self.trim_newline();
 
