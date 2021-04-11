@@ -48,8 +48,8 @@ impl<T: Read> SubRipParser<T> {
             } else {
                 let position = buf
                     .iter()
-                    .filter(|&x| x.is_ascii_digit())
-                    .map(|x| (x - b'0').to_string())
+                    .skip_while(|x| !x.is_ascii_digit())
+                    .map(|&x| if x >= b'0' { x - b'0' } else { x }.to_string())
                     .fold(String::new(), |acc, x| acc + &x)
                     .parse()?;
                 Ok(Some(position))
@@ -163,6 +163,13 @@ mod tests {
         let pos = "\n".as_bytes();
 
         assert!(position(pos).unwrap().is_none());
+    }
+
+    #[test]
+    fn wrong_position() {
+        let pos = "1 wrong position\n".as_bytes();
+
+        assert!(position(pos).is_err());
     }
 
     #[test]
