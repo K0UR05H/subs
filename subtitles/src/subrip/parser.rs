@@ -28,7 +28,7 @@ impl<T: Read> SubRipParser<T> {
             Some((start, end)) => (start, end),
             None => return Ok(None),
         };
-        let text = match self.parse_text() {
+        let text = match self.parse_texts() {
             Some(text) => text,
             None => return Ok(None),
         };
@@ -85,8 +85,8 @@ impl<T: Read> SubRipParser<T> {
         })
     }
 
-    fn parse_text(&mut self) -> Option<Vec<Line>> {
-        let mut text = Vec::new();
+    fn parse_texts(&mut self) -> Option<Vec<Line>> {
+        let mut texts = Vec::new();
         while let Ok(Some(line)) = self.read_line(|buf| {
             if buf.is_empty() {
                 Ok(None)
@@ -94,13 +94,13 @@ impl<T: Read> SubRipParser<T> {
                 Ok(Some(buf.clone()))
             }
         }) {
-            text.push(line);
+            texts.push(line);
         }
 
-        if text.is_empty() {
+        if texts.is_empty() {
             None
         } else {
-            Some(text)
+            Some(texts)
         }
     }
 
@@ -138,17 +138,123 @@ mod tests {
 
     use super::*;
 
+    fn next<T: Read>(subtitle: T) -> Option<Result<SubRip>> {
+        let mut parser = SubRipParser::new(subtitle);
+        parser.next()
+    }
+
+    fn position<T: Read>(position: T) -> Result<Option<usize>> {
+        let mut parser = SubRipParser::new(position);
+        parser.parse_position()
+    }
+
+    fn timecode<T: Read>(timecode: T) -> Result<Option<(Timecode, Timecode)>> {
+        let mut parser = SubRipParser::new(timecode);
+        parser.parse_timecode()
+    }
+
+    fn texts<T: Read>(t: T) -> Option<Vec<Line>> {
+        let mut parser = SubRipParser::new(t);
+        parser.parse_texts()
+    }
+
+    #[test]
+    fn empty_position() {
+        let pos = "\n".as_bytes();
+
+        assert!(position(pos).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_position() {
+        let pos = "1433\n".as_bytes();
+
+        assert_eq!(Some(1433), position(pos).unwrap());
+    }
+
+    #[test]
+    fn empty_timecode() {
+        let t = "\n".as_bytes();
+
+        assert!(timecode(t).unwrap().is_none());
+    }
+
+    #[test]
+    fn parse_timecode() {
+        let t = "01:04:00,705 --> 01:04:02,145\n".as_bytes();
+
+        let expected_start = Timecode {
+            hours: 1,
+            minutes: 4,
+            seconds: 0,
+            milliseconds: 705,
+        };
+        let expected_end = Timecode {
+            hours: 1,
+            minutes: 4,
+            seconds: 2,
+            milliseconds: 145,
+        };
+
+        let (start, end) = timecode(t).unwrap().unwrap();
+
+        assert_eq!(expected_start, start);
+        assert_eq!(expected_end, end);
+    }
+
+    #[test]
+    fn bad_format_timecode() {
+        let t = "00:00:0,500 --> 00:00:2,00\n".as_bytes();
+
+        let expected_start = Timecode {
+            hours: 0,
+            minutes: 0,
+            seconds: 0,
+            milliseconds: 500,
+        };
+        let expected_end = Timecode {
+            hours: 0,
+            minutes: 0,
+            seconds: 2,
+            milliseconds: 0,
+        };
+
+        let (start, end) = timecode(t).unwrap().unwrap();
+
+        assert_eq!(expected_start, start);
+        assert_eq!(expected_end, end);
+    }
+
+    #[test]
+    fn empty_text() {
+        let t = "".as_bytes();
+
+        assert!(texts(t).is_none());
+    }
+
+    #[test]
+    fn parse_texts() {
+        let t = "This is a\nTest\n\n".as_bytes();
+
+        let expected = vec![
+            String::from("This is a").into_bytes(),
+            String::from("Test").into_bytes(),
+        ];
+        let actual = texts(t).unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
     #[test]
     fn skip_dom() {
         let bom: [u8; 3] = [0xef, 0xbb, 0xbf];
         let subtitle = "\
 1433
 01:04:00,705 --> 01:04:02,145
-It's only after
-we've lost everything"
+This is a
+Test"
             .as_bytes();
-        let subtitle = [&bom, subtitle].concat();
-        let mut parser = SubRipParser::new(Cursor::new(subtitle));
+        let subtitle = Cursor::new([&bom, subtitle].concat());
 
         let expected = SubRip {
             position: 1433,
@@ -165,103 +271,14 @@ we've lost everything"
                 milliseconds: 145,
             },
             text: vec![
-                String::from("It's only after").into_bytes(),
-                String::from("we've lost everything").into_bytes(),
+                String::from("This is a").into_bytes(),
+                String::from("Test").into_bytes(),
             ],
         };
 
-        assert_eq!(expected, parser.next().unwrap().unwrap());
-    }
+        let actual = next(subtitle).unwrap().unwrap();
 
-    #[test]
-    fn empty_position() {
-        let position = "\n".as_bytes();
-        let mut parser = SubRipParser::new(position);
-
-        assert!(parser.parse_position().unwrap().is_none());
-    }
-
-    #[test]
-    fn parse_position() {
-        let position = "1433\n".as_bytes();
-        let mut parser = SubRipParser::new(position);
-
-        assert_eq!(Some(1433), parser.parse_position().unwrap());
-    }
-
-    #[test]
-    fn empty_timecode() {
-        let timecode = "\n".as_bytes();
-        let mut parser = SubRipParser::new(timecode);
-
-        assert!(parser.parse_timecode().unwrap().is_none());
-    }
-
-    #[test]
-    fn parse_timecode() {
-        let timecode = "01:04:00,705 --> 01:04:02,145\n".as_bytes();
-        let mut parser = SubRipParser::new(timecode);
-
-        let expected_start = Timecode {
-            hours: 1,
-            minutes: 4,
-            seconds: 0,
-            milliseconds: 705,
-        };
-        let expected_end = Timecode {
-            hours: 1,
-            minutes: 4,
-            seconds: 2,
-            milliseconds: 145,
-        };
-
-        let (start, end) = parser.parse_timecode().unwrap().unwrap();
-        assert_eq!(expected_start, start);
-        assert_eq!(expected_end, end);
-    }
-
-    #[test]
-    fn bad_format_timecode() {
-        let timecode = "00:00:0,500 --> 00:00:2,00\n".as_bytes();
-        let mut parser = SubRipParser::new(timecode);
-
-        let expected_start = Timecode {
-            hours: 0,
-            minutes: 0,
-            seconds: 0,
-            milliseconds: 500,
-        };
-        let expected_end = Timecode {
-            hours: 0,
-            minutes: 0,
-            seconds: 2,
-            milliseconds: 0,
-        };
-
-        let (start, end) = parser.parse_timecode().unwrap().unwrap();
-        assert_eq!(expected_start, start);
-        assert_eq!(expected_end, end);
-    }
-
-    #[test]
-    fn empty_text() {
-        let text = "".as_bytes();
-        let mut parser = SubRipParser::new(text);
-
-        assert!(parser.parse_text().is_none());
-    }
-
-    #[test]
-    fn parse_text() {
-        let text = "It's only after\nwe've lost everything\n\n".as_bytes();
-        let mut parser = SubRipParser::new(text);
-        let result = parser.parse_text().unwrap();
-        let expected = vec![
-            String::from("It's only after").into_bytes(),
-            String::from("we've lost everything").into_bytes(),
-        ];
-
-        assert_eq!(expected, result);
+        assert_eq!(expected, actual);
     }
 
     #[test]
