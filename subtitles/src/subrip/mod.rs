@@ -5,5 +5,5 @@ use parser::SubRipParser;
 use std::io::Read;
 
 pub fn open<T: Read>(subtitle: T) -> SubRipParser<T> {
-    SubRipParser::new(subtitle)
+    SubRipParser::from(subtitle)
 }

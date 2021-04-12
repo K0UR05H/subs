@@ -12,13 +12,6 @@ pub struct SubRipParser<T: Read> {
 }
 
 impl<T: Read> SubRipParser<T> {
-    pub fn new(subtitle: T) -> SubRipParser<T> {
-        SubRipParser {
-            subtitle: BufReader::new(subtitle),
-            buffer: Vec::new(),
-        }
-    }
-
     fn parse_next(&mut self) -> Result<Option<SubRip>> {
         let position = match self.parse_position()? {
             Some(position) => position,
@@ -124,6 +117,15 @@ impl<T: Read> SubRipParser<T> {
     }
 }
 
+impl<T: Read> From<T> for SubRipParser<T> {
+    fn from(subtitle: T) -> Self {
+        SubRipParser {
+            subtitle: BufReader::new(subtitle),
+            buffer: Vec::new(),
+        }
+    }
+}
+
 impl<T: Read> Iterator for SubRipParser<T> {
     type Item = Result<SubRip>;
 
@@ -139,22 +141,22 @@ mod tests {
     use super::*;
 
     fn next<T: Read>(subtitle: T) -> Option<Result<SubRip>> {
-        let mut parser = SubRipParser::new(subtitle);
+        let mut parser = SubRipParser::from(subtitle);
         parser.next()
     }
 
     fn position<T: Read>(position: T) -> Result<Option<usize>> {
-        let mut parser = SubRipParser::new(position);
+        let mut parser = SubRipParser::from(position);
         parser.parse_position()
     }
 
     fn timecode<T: Read>(timecode: T) -> Result<Option<(Timecode, Timecode)>> {
-        let mut parser = SubRipParser::new(timecode);
+        let mut parser = SubRipParser::from(timecode);
         parser.parse_timecode()
     }
 
     fn texts<T: Read>(t: T) -> Option<Vec<Line>> {
-        let mut parser = SubRipParser::new(t);
+        let mut parser = SubRipParser::from(t);
         parser.parse_texts()
     }
 
@@ -300,7 +302,7 @@ we've lost everything
 01:04:02,170 --> 01:04:04,190
 that we're free to do anything.";
 
-        let mut parser = SubRipParser::new(sub.as_bytes());
+        let mut parser = SubRipParser::from(sub.as_bytes());
 
         // First
         let expected = SubRip {
