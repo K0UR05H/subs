@@ -49,12 +49,7 @@ impl<T: Read> SubRipParser<T> {
             if buf.is_empty() {
                 Ok(None)
             } else {
-                let position = buf
-                    .iter()
-                    .skip_while(|x| !x.is_ascii_digit())
-                    .map(|&x| if x >= b'0' { x - b'0' } else { x }.to_string())
-                    .fold(String::new(), |acc, x| acc + &x)
-                    .parse()?;
+                let position = String::from_utf8_lossy(buf).parse()?;
                 Ok(Some(position))
             }
         })
@@ -109,12 +104,21 @@ impl<T: Read> SubRipParser<T> {
 
     fn read_line<R, F: FnOnce(&Line) -> Result<R>>(&mut self, f: F) -> Result<R> {
         self.subtitle.read_until(b'\n', &mut self.buffer)?;
+        self.trim_start();
         self.trim_newline();
 
         let result = f(&self.buffer);
 
         self.buffer.clear();
         result
+    }
+
+    fn trim_start(&mut self) {
+        if let Some(ascii_start) = self.buffer.iter().position(|x| x.is_ascii()) {
+            if ascii_start > 0 {
+                self.buffer = self.buffer.split_off(ascii_start);
+            }
+        }
     }
 
     fn trim_newline(&mut self) {
@@ -179,7 +183,7 @@ mod tests {
 
     #[test]
     fn wrong_position() {
-        let pos = "1 wrong position\n".as_bytes();
+        let pos = "1b\n".as_bytes();
 
         assert!(position(pos).is_err());
     }
