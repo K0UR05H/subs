@@ -3,10 +3,10 @@ use super::{
     format::{Line, SubRip, Timecode},
 };
 use std::{
+    borrow::Cow,
     error,
     io::{BufRead, BufReader, Read},
     result,
-    str::Utf8Error,
 };
 
 type Result<T> = result::Result<T, Box<dyn error::Error>>;
@@ -60,22 +60,24 @@ impl<T: Read> SubRipParser<T> {
             if buf.is_empty() {
                 Ok(None)
             } else {
-                let line: Vec<result::Result<&str, Utf8Error>> = buf
+                let line: Vec<Cow<str>> = buf
                     .split(|x| [b':', b',', b' '].contains(x))
-                    .map(|x| std::str::from_utf8(x))
+                    .map(|x| String::from_utf8_lossy(x))
                     .collect();
 
+                let err = "wrong timecode";
+
                 let start = Timecode {
-                    hours: line[0]?.parse()?,
-                    minutes: line[1]?.parse()?,
-                    seconds: line[2]?.parse()?,
-                    milliseconds: line[3]?.parse()?,
+                    hours: line.get(0).ok_or(err)?.parse()?,
+                    minutes: line.get(1).ok_or(err)?.parse()?,
+                    seconds: line.get(2).ok_or(err)?.parse()?,
+                    milliseconds: line.get(3).ok_or(err)?.parse()?,
                 };
                 let end = Timecode {
-                    hours: line[5]?.parse()?,
-                    minutes: line[6]?.parse()?,
-                    seconds: line[7]?.parse()?,
-                    milliseconds: line[8]?.parse()?,
+                    hours: line.get(5).ok_or(err)?.parse()?,
+                    minutes: line.get(6).ok_or(err)?.parse()?,
+                    seconds: line.get(7).ok_or(err)?.parse()?,
+                    milliseconds: line.get(8).ok_or(err)?.parse()?,
                 };
 
                 Ok(Some((start, end)))
@@ -246,6 +248,13 @@ mod tests {
 
         assert_eq!(expected_start, start);
         assert_eq!(expected_end, end);
+    }
+
+    #[test]
+    fn invalid_timecode() {
+        let t = "00:00:00,000\n".as_bytes();
+
+        assert!(timecode(t).is_err());
     }
 
     #[test]
