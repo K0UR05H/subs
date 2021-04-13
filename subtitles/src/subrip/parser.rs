@@ -1,10 +1,16 @@
-use super::format::{Line, SubRip, Timecode};
+use super::{
+    error::{Error, ErrorKind},
+    format::{Line, SubRip, Timecode},
+};
 use std::{
+    error,
     io::{BufRead, BufReader, Read},
+    result,
     str::Utf8Error,
 };
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+type Result<T> = result::Result<T, Box<dyn error::Error>>;
+type ParseResult<T> = result::Result<T, Error>;
 
 pub struct SubRipParser<T: Read> {
     subtitle: BufReader<T>,
@@ -12,15 +18,19 @@ pub struct SubRipParser<T: Read> {
 }
 
 impl<T: Read> SubRipParser<T> {
-    fn parse_next(&mut self) -> Result<Option<SubRip>> {
-        let position = match self.parse_position()? {
-            Some(position) => position,
-            None => return Ok(None),
+    fn parse_next(&mut self) -> ParseResult<Option<SubRip>> {
+        let position = match self.parse_position() {
+            Ok(Some(position)) => position,
+            Ok(None) => return Ok(None),
+            Err(err) => return Err(Error::new(ErrorKind::InvalidPosition, err)),
         };
-        let (start, end) = match self.parse_timecode()? {
-            Some((start, end)) => (start, end),
-            None => return Ok(None),
+
+        let (start, end) = match self.parse_timecode() {
+            Ok(Some((start, end))) => (start, end),
+            Ok(None) => return Ok(None),
+            Err(err) => return Err(Error::new(ErrorKind::InvalidTimecode, err)),
         };
+
         let text = match self.parse_texts() {
             Some(text) => text,
             None => return Ok(None),
@@ -55,7 +65,7 @@ impl<T: Read> SubRipParser<T> {
             if buf.is_empty() {
                 Ok(None)
             } else {
-                let line: Vec<std::result::Result<&str, Utf8Error>> = buf
+                let line: Vec<result::Result<&str, Utf8Error>> = buf
                     .split(|x| [b':', b',', b' '].contains(x))
                     .map(|x| std::str::from_utf8(x))
                     .collect();
@@ -127,7 +137,7 @@ impl<T: Read> From<T> for SubRipParser<T> {
 }
 
 impl<T: Read> Iterator for SubRipParser<T> {
-    type Item = Result<SubRip>;
+    type Item = ParseResult<SubRip>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.parse_next().transpose()
@@ -140,7 +150,7 @@ mod tests {
 
     use super::*;
 
-    fn next<T: Read>(subtitle: T) -> Option<Result<SubRip>> {
+    fn next<T: Read>(subtitle: T) -> Option<ParseResult<SubRip>> {
         let mut parser = SubRipParser::from(subtitle);
         parser.next()
     }
