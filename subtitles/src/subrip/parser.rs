@@ -111,6 +111,10 @@ impl<T: Read> SubRipParser<T> {
 
         let result = f(&self.buffer);
 
+        if result.is_err() {
+            self.skip_to_next_subtitle();
+        }
+
         self.buffer.clear();
         result
     }
@@ -128,6 +132,17 @@ impl<T: Read> SubRipParser<T> {
             self.buffer.pop();
             if self.buffer.ends_with(&[b'\r']) {
                 self.buffer.pop();
+            }
+        }
+    }
+
+    fn skip_to_next_subtitle(&mut self) {
+        while let Ok(read) = self.subtitle.read_until(b'\n', &mut self.buffer) {
+            if (read == 0)
+                | ((read == 1) && self.buffer.ends_with(&[b'\n']))
+                | ((read == 2) && self.buffer.ends_with(&[b'\r', b'\n']))
+            {
+                break;
             }
         }
     }
@@ -371,5 +386,39 @@ that we're free to do anything.";
 
         // End
         assert!(parser.next().is_none());
+    }
+
+    #[test]
+    fn skip_invalid_subtitle() {
+        let sub = "\
+1
+00:00:00,000
+Invalid
+
+2
+01:02:03,456 --> 07:08:09,101
+This is a Test";
+        let mut parser = SubRipParser::from(sub.as_bytes());
+
+        assert!(parser.next().unwrap().is_err());
+
+        let expected = SubRip {
+            position: 2,
+            start: Timecode {
+                hours: 1,
+                minutes: 2,
+                seconds: 3,
+                milliseconds: 456,
+            },
+            end: Timecode {
+                hours: 7,
+                minutes: 8,
+                seconds: 9,
+                milliseconds: 101,
+            },
+            text: vec![String::from("This is a Test").into_bytes()],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
     }
 }
