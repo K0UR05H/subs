@@ -10,6 +10,7 @@ pub struct Error {
 pub enum ErrorKind {
     InvalidPosition,
     InvalidTimecode,
+    InvalidText,
 }
 
 impl ErrorKind {
@@ -17,6 +18,7 @@ impl ErrorKind {
         match self {
             ErrorKind::InvalidPosition => "invalid position",
             ErrorKind::InvalidTimecode => "invalid timecode",
+            ErrorKind::InvalidText => "invalid text",
         }
     }
 }

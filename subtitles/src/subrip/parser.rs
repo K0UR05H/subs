@@ -1,40 +1,42 @@
 use super::{
+    core::*,
     error::{Error, ErrorKind},
-    format::{Line, SubRip, Timecode},
+    format::SubRip,
 };
 use std::{
-    borrow::Cow,
-    error,
     io::{BufRead, BufReader, Read},
     result,
 };
 
-type Result<T> = result::Result<T, Box<dyn error::Error>>;
 type ParseResult<T> = result::Result<T, Error>;
 
 pub struct SubRipParser<T: Read> {
     subtitle: BufReader<T>,
-    buffer: Line,
+    buffer: Vec<u8>,
 }
 
 impl<T: Read> SubRipParser<T> {
     fn parse_next(&mut self) -> ParseResult<Option<SubRip>> {
-        let position = match self.parse_position() {
+        let position = match self.read_line(|line| parse_position(line)) {
             Ok(Some(position)) => position,
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidPosition, err)),
         };
 
-        let (start, end) = match self.parse_timecode() {
+        let (start, end) = match self.read_line(|line| parse_timecode(line)) {
             Ok(Some((start, end))) => (start, end),
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidTimecode, err)),
         };
 
-        let text = match self.parse_texts() {
-            Some(text) => text,
-            None => return Ok(None),
-        };
+        let mut text = Vec::new();
+        loop {
+            match self.read_line(|line| Ok(parse_text(line))) {
+                Ok(Some(t)) => text.push(t),
+                Ok(None) => break,
+                Err(err) => return Err(Error::new(ErrorKind::InvalidText, err)),
+            }
+        }
 
         Ok(Some(SubRip {
             position,
@@ -44,70 +46,10 @@ impl<T: Read> SubRipParser<T> {
         }))
     }
 
-    fn parse_position(&mut self) -> Result<Option<usize>> {
-        self.read_line(|buf| {
-            if buf.is_empty() {
-                Ok(None)
-            } else {
-                let position = String::from_utf8_lossy(buf).parse()?;
-                Ok(Some(position))
-            }
-        })
-    }
-
-    fn parse_timecode(&mut self) -> Result<Option<(Timecode, Timecode)>> {
-        self.read_line(|buf| {
-            if buf.is_empty() {
-                Ok(None)
-            } else {
-                let line: Vec<Cow<str>> = buf
-                    .split(|x| [b':', b',', b' '].contains(x))
-                    .map(|x| String::from_utf8_lossy(x))
-                    .collect();
-
-                let err = "wrong timecode";
-
-                let start = Timecode {
-                    hours: line.get(0).ok_or(err)?.parse()?,
-                    minutes: line.get(1).ok_or(err)?.parse()?,
-                    seconds: line.get(2).ok_or(err)?.parse()?,
-                    milliseconds: line.get(3).ok_or(err)?.parse()?,
-                };
-                let end = Timecode {
-                    hours: line.get(5).ok_or(err)?.parse()?,
-                    minutes: line.get(6).ok_or(err)?.parse()?,
-                    seconds: line.get(7).ok_or(err)?.parse()?,
-                    milliseconds: line.get(8).ok_or(err)?.parse()?,
-                };
-
-                Ok(Some((start, end)))
-            }
-        })
-    }
-
-    fn parse_texts(&mut self) -> Option<Vec<Line>> {
-        let mut texts = Vec::new();
-        while let Ok(Some(line)) = self.read_line(|buf| {
-            if buf.is_empty() {
-                Ok(None)
-            } else {
-                Ok(Some(buf.clone()))
-            }
-        }) {
-            texts.push(line);
-        }
-
-        if texts.is_empty() {
-            None
-        } else {
-            Some(texts)
-        }
-    }
-
-    fn read_line<R, F: FnOnce(&Line) -> Result<R>>(&mut self, f: F) -> Result<R> {
+    fn read_line<R, F: FnOnce(&[u8]) -> Result<R>>(&mut self, f: F) -> Result<R> {
         self.subtitle.read_until(b'\n', &mut self.buffer)?;
         self.trim_start();
-        self.trim_newline();
+        self.trim_end();
 
         let result = f(&self.buffer);
 
@@ -127,7 +69,7 @@ impl<T: Read> SubRipParser<T> {
         }
     }
 
-    fn trim_newline(&mut self) {
+    fn trim_end(&mut self) {
         if self.buffer.ends_with(&[b'\n']) {
             self.buffer.pop();
             if self.buffer.ends_with(&[b'\r']) {
@@ -167,130 +109,8 @@ impl<T: Read> Iterator for SubRipParser<T> {
 
 #[cfg(test)]
 mod tests {
+    use super::{super::format::Timecode, *};
     use std::io::Cursor;
-
-    use super::*;
-
-    fn next<T: Read>(subtitle: T) -> Option<ParseResult<SubRip>> {
-        let mut parser = SubRipParser::from(subtitle);
-        parser.next()
-    }
-
-    fn position<T: Read>(position: T) -> Result<Option<usize>> {
-        let mut parser = SubRipParser::from(position);
-        parser.parse_position()
-    }
-
-    fn timecode<T: Read>(timecode: T) -> Result<Option<(Timecode, Timecode)>> {
-        let mut parser = SubRipParser::from(timecode);
-        parser.parse_timecode()
-    }
-
-    fn texts<T: Read>(t: T) -> Option<Vec<Line>> {
-        let mut parser = SubRipParser::from(t);
-        parser.parse_texts()
-    }
-
-    #[test]
-    fn empty_position() {
-        let pos = "\n".as_bytes();
-
-        assert!(position(pos).unwrap().is_none());
-    }
-
-    #[test]
-    fn wrong_position() {
-        let pos = "1b\n".as_bytes();
-
-        assert!(position(pos).is_err());
-    }
-
-    #[test]
-    fn parse_position() {
-        let pos = "1433\n".as_bytes();
-
-        assert_eq!(Some(1433), position(pos).unwrap());
-    }
-
-    #[test]
-    fn empty_timecode() {
-        let t = "\n".as_bytes();
-
-        assert!(timecode(t).unwrap().is_none());
-    }
-
-    #[test]
-    fn parse_timecode() {
-        let t = "01:04:00,705 --> 01:04:02,145\n".as_bytes();
-
-        let expected_start = Timecode {
-            hours: 1,
-            minutes: 4,
-            seconds: 0,
-            milliseconds: 705,
-        };
-        let expected_end = Timecode {
-            hours: 1,
-            minutes: 4,
-            seconds: 2,
-            milliseconds: 145,
-        };
-
-        let (start, end) = timecode(t).unwrap().unwrap();
-
-        assert_eq!(expected_start, start);
-        assert_eq!(expected_end, end);
-    }
-
-    #[test]
-    fn bad_format_timecode() {
-        let t = "00:00:0,500 --> 00:00:2,00\n".as_bytes();
-
-        let expected_start = Timecode {
-            hours: 0,
-            minutes: 0,
-            seconds: 0,
-            milliseconds: 500,
-        };
-        let expected_end = Timecode {
-            hours: 0,
-            minutes: 0,
-            seconds: 2,
-            milliseconds: 0,
-        };
-
-        let (start, end) = timecode(t).unwrap().unwrap();
-
-        assert_eq!(expected_start, start);
-        assert_eq!(expected_end, end);
-    }
-
-    #[test]
-    fn invalid_timecode() {
-        let t = "00:00:00,000\n".as_bytes();
-
-        assert!(timecode(t).is_err());
-    }
-
-    #[test]
-    fn empty_text() {
-        let t = "".as_bytes();
-
-        assert!(texts(t).is_none());
-    }
-
-    #[test]
-    fn parse_texts() {
-        let t = "This is a\nTest\n\n".as_bytes();
-
-        let expected = vec![
-            String::from("This is a").into_bytes(),
-            String::from("Test").into_bytes(),
-        ];
-        let actual = texts(t).unwrap();
-
-        assert_eq!(expected, actual);
-    }
 
     #[test]
     fn skip_dom() {
@@ -323,7 +143,7 @@ Test"
             ],
         };
 
-        let actual = next(subtitle).unwrap().unwrap();
+        let actual = SubRipParser::from(subtitle).next().unwrap().unwrap();
 
         assert_eq!(expected, actual);
     }

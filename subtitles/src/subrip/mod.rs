@@ -1,6 +1,7 @@
+mod core;
+mod error;
 pub mod format;
 mod parser;
-mod error;
 
 use parser::SubRipParser;
 use std::io::Read;
