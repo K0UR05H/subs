@@ -62,10 +62,9 @@ impl<T: Read> SubRipParser<T> {
     }
 
     fn trim_start(&mut self) {
-        if let Some(ascii_start) = self.buffer.iter().position(|x| x.is_ascii()) {
-            if ascii_start > 0 {
-                self.buffer = self.buffer.split_off(ascii_start);
-            }
+        let bom = [b'\xef', b'\xbb', b'\xbf'];
+        if self.buffer.starts_with(&bom) {
+            self.buffer.drain(0..3);
         }
     }
 
@@ -237,6 +236,37 @@ This is a Test";
                 milliseconds: 101,
             },
             text: vec![String::from("This is a Test").into_bytes()],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
+    }
+
+    #[test]
+    fn parse_non_utf8_text() {
+        let text = [b'\xff', b'\x74', b'\x65', b'\x73', b'\x74'];
+        let subtitle = "\
+1
+01:02:03,456 --> 07:08:09,101
+";
+        let subtitle = [subtitle.as_bytes(), &text].concat();
+
+        let mut parser = SubRipParser::from(Cursor::new(subtitle));
+
+        let expected = SubRip {
+            position: 1,
+            start: Timecode {
+                hours: 1,
+                minutes: 2,
+                seconds: 3,
+                milliseconds: 456,
+            },
+            end: Timecode {
+                hours: 7,
+                minutes: 8,
+                seconds: 9,
+                milliseconds: 101,
+            },
+            text: vec![text.to_vec()],
         };
 
         assert_eq!(expected, parser.next().unwrap().unwrap());
