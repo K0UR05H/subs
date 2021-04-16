@@ -1,4 +1,4 @@
-use std::{fmt, str::Utf8Error};
+use std::{borrow::Cow, fmt, str::Utf8Error};
 
 pub type Line = Vec<u8>;
 
@@ -22,13 +22,21 @@ impl SubRip {
     pub fn text_from_utf8(&self) -> Vec<Result<&str, Utf8Error>> {
         self.text.iter().map(|x| std::str::from_utf8(x)).collect()
     }
+
+    pub fn text_from_utf8_lossy(&self) -> Vec<Cow<str>> {
+        self.text
+            .iter()
+            .map(|x| String::from_utf8_lossy(x))
+            .collect()
+    }
 }
 
 impl fmt::Display for SubRip {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = self.text.iter().fold(String::new(), |acc, x| {
-            acc + "\n" + &*String::from_utf8_lossy(x)
-        });
+        let text = self
+            .text_from_utf8_lossy()
+            .iter()
+            .fold(String::new(), |acc, x| acc + "\n" + x);
 
         write!(
             f,

@@ -108,18 +108,9 @@ fn print_file_name(file_name: Option<&OsStr>) {
 }
 
 fn print_subtitle(subtitle: SubRip, regex: &Regex) {
-    for line in subtitle.text_from_utf8() {
-        match line {
-            Ok(line) => {
-                if let Some(matched) = regex.find(&line) {
-                    print_match(subtitle.position, &line, &matched);
-                }
-            }
-            Err(err) => eprintln!(
-                "{}: {}",
-                subtitle.position,
-                Red.paint(format!("{}: {}", "Error", err))
-            ),
+    for line in subtitle.text_from_utf8_lossy() {
+        if let Some(matched) = regex.find(&line) {
+            print_match(subtitle.position, &line, &matched);
         }
     }
 }
