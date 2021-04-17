@@ -33,16 +33,13 @@ impl SubRip {
 
 impl fmt::Display for SubRip {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = self
-            .text_from_utf8_lossy()
-            .iter()
-            .fold(String::new(), |acc, x| acc + "\n" + x);
+        let text = self.text_from_utf8_lossy().join("\n");
 
         write!(
             f,
             "\
 {}
-{:02}:{:02}:{:02},{:03} --> {:02}:{:02}:{:02},{:03}\
+{:02}:{:02}:{:02},{:03} --> {:02}:{:02}:{:02},{:03}
 {}",
             self.position,
             self.start.hours,
