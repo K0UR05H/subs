@@ -1,4 +1,4 @@
-use std::{borrow::Cow, fmt, str::Utf8Error};
+use std::{borrow::Cow, fmt};
 
 pub type Line = Vec<u8>;
 
@@ -19,10 +19,6 @@ pub struct SubRip {
 }
 
 impl SubRip {
-    pub fn text_from_utf8(&self) -> Vec<Result<&str, Utf8Error>> {
-        self.text.iter().map(|x| std::str::from_utf8(x)).collect()
-    }
-
     pub fn text_from_utf8_lossy(&self) -> Vec<Cow<str>> {
         self.text
             .iter()
@@ -58,53 +54,6 @@ impl fmt::Display for SubRip {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn text_from_utf8() {
-        let text = String::from("test").into_bytes();
-        let sub = SubRip {
-            position: 1,
-            start: Timecode {
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                milliseconds: 0,
-            },
-            end: Timecode {
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                milliseconds: 0,
-            },
-            text: vec![text],
-        };
-
-        assert_eq!(vec![Ok("test")], sub.text_from_utf8());
-    }
-
-    #[test]
-    fn text_from_invalid_utf8() {
-        let text = vec![b'\xff'];
-        let sub = SubRip {
-            position: 1,
-            start: Timecode {
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                milliseconds: 0,
-            },
-            end: Timecode {
-                hours: 0,
-                minutes: 0,
-                seconds: 0,
-                milliseconds: 0,
-            },
-            text: vec![text],
-        };
-
-        assert_eq!(1, sub.text_from_utf8().len());
-        assert!(sub.text_from_utf8().first().unwrap().is_err())
-    }
 
     #[test]
     fn display() {
