@@ -17,13 +17,13 @@ pub struct SubRipParser<T: Read> {
 
 impl<T: Read> SubRipParser<T> {
     fn parse_next(&mut self) -> ParseResult<Option<SubRip>> {
-        let position = match self.read_line(|line| parse_position(line)) {
+        let position = match self.read_line(true, |line| parse_position(line)) {
             Ok(Some(position)) => position,
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidPosition, err)),
         };
 
-        let (start, end) = match self.read_line(|line| parse_timecode(line)) {
+        let (start, end) = match self.read_line(true, |line| parse_timecode(line)) {
             Ok(Some((start, end))) => (start, end),
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidTimecode, err)),
@@ -31,7 +31,7 @@ impl<T: Read> SubRipParser<T> {
 
         let mut text = Vec::new();
         loop {
-            match self.read_line(|line| Ok(parse_text(line))) {
+            match self.read_line(false, |line| Ok(parse_text(line))) {
                 Ok(Some(t)) => text.push(t),
                 Ok(None) => break,
                 Err(err) => return Err(Error::new(ErrorKind::InvalidText, err)),
@@ -46,10 +46,17 @@ impl<T: Read> SubRipParser<T> {
         }))
     }
 
-    fn read_line<R, F: FnOnce(&[u8]) -> Result<R>>(&mut self, f: F) -> Result<R> {
+    fn read_line<R, F: FnOnce(&[u8]) -> Result<R>>(
+        &mut self,
+        skip_non_ascii: bool,
+        f: F,
+    ) -> Result<R> {
         self.subtitle.read_until(b'\n', &mut self.buffer)?;
-        self.trim_start();
         self.trim_end();
+
+        if skip_non_ascii {
+            self.skip_non_ascii();
+        }
 
         let result = f(&self.buffer);
 
@@ -61,10 +68,11 @@ impl<T: Read> SubRipParser<T> {
         result
     }
 
-    fn trim_start(&mut self) {
-        let bom = [b'\xef', b'\xbb', b'\xbf'];
-        if self.buffer.starts_with(&bom) {
-            self.buffer.drain(0..3);
+    fn skip_non_ascii(&mut self) {
+        if let Some(ascii_start) = self.buffer.iter().position(|x| x.is_ascii()) {
+            if ascii_start > 0 {
+                self.buffer = self.buffer.split_off(ascii_start);
+            }
         }
     }
 
