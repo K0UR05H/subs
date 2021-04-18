@@ -10,15 +10,22 @@ pub struct Timecode {
     pub milliseconds: u16,
 }
 
+/// Representing a SubRip (.srt) file
 #[derive(Debug, PartialEq)]
 pub struct SubRip {
+    /// Subtitle position
     pub position: usize,
+    /// The time that the subtitle should appear.
     pub start: Timecode,
+    /// The time that the subtitle should disappear.
     pub end: Timecode,
+    /// A list of lines in this subtitle.
+    /// note that each line is a byte sequence and should be decoded.
     pub text: Vec<Line>,
 }
 
 impl SubRip {
+    /// Decode subtitle text to a list of strings
     pub fn text_from_utf8_lossy(&self) -> Vec<Cow<str>> {
         self.text
             .iter()
