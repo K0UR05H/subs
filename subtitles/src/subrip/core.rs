@@ -1,25 +1,22 @@
-use super::format::{Line, Timecode};
-use std::{borrow::Cow, error, result};
+use super::format::Timecode;
+use std::{error, result};
 
 pub type Result<T> = result::Result<T, Box<dyn error::Error>>;
 
-pub fn parse_position(line: &[u8]) -> Result<Option<usize>> {
+pub fn parse_position(line: String) -> Result<Option<usize>> {
     if line.is_empty() {
         Ok(None)
     } else {
-        let position = String::from_utf8_lossy(line).parse()?;
+        let position = line.parse()?;
         Ok(Some(position))
     }
 }
 
-pub fn parse_timecode(line: &[u8]) -> Result<Option<(Timecode, Timecode)>> {
+pub fn parse_timecode(line: String) -> Result<Option<(Timecode, Timecode)>> {
     if line.is_empty() {
         Ok(None)
     } else {
-        let line: Vec<Cow<str>> = line
-            .split(|x| [b':', b',', b' '].contains(x))
-            .map(|x| String::from_utf8_lossy(x))
-            .collect();
+        let line: Vec<&str> = line.split(&[':', ',', ' '][..]).collect();
 
         let err = "wrong timecode format";
 
@@ -40,12 +37,23 @@ pub fn parse_timecode(line: &[u8]) -> Result<Option<(Timecode, Timecode)>> {
     }
 }
 
-pub fn parse_text(line: &[u8]) -> Option<Line> {
+pub fn parse_text(line: String) -> Option<String> {
     if line.is_empty() {
         None
     } else {
-        Some(line.to_vec())
+        Some(line)
     }
+}
+
+pub fn trim_newline(mut line: String) -> String {
+    if line.ends_with('\n') {
+        line.pop();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+    }
+
+    line
 }
 
 #[cfg(test)]
@@ -54,35 +62,35 @@ mod tests {
 
     #[test]
     fn empty_position() {
-        let position = "".as_bytes();
+        let position = String::new();
 
         assert!(parse_position(position).unwrap().is_none());
     }
 
     #[test]
     fn wrong_position() {
-        let position = "1b".as_bytes();
+        let position = String::from("1b");
 
         assert!(parse_position(position).is_err());
     }
 
     #[test]
     fn position() {
-        let position = "1433".as_bytes();
+        let position = String::from("1433");
 
         assert_eq!(Some(1433), parse_position(position).unwrap());
     }
 
     #[test]
     fn empty_timecode() {
-        let timecode = "".as_bytes();
+        let timecode = String::new();
 
         assert!(parse_timecode(timecode).unwrap().is_none());
     }
 
     #[test]
     fn bad_format_timecode() {
-        let timecode = "00:00:0,500 --> 00:00:2,00".as_bytes();
+        let timecode = String::from("00:00:0,500 --> 00:00:2,00");
 
         let expected_start = Timecode {
             hours: 0,
@@ -105,14 +113,14 @@ mod tests {
 
     #[test]
     fn invalid_timecode() {
-        let timecode = "00:00:00,000".as_bytes();
+        let timecode = String::from("00:00:00,000");
 
         assert!(parse_timecode(timecode).is_err());
     }
 
     #[test]
     fn timecode() {
-        let timecode = "01:04:00,705 --> 01:04:02,145".as_bytes();
+        let timecode = String::from("01:04:00,705 --> 01:04:02,145");
 
         let expected_start = Timecode {
             hours: 1,
@@ -135,15 +143,15 @@ mod tests {
 
     #[test]
     fn empty_text() {
-        let text = "".as_bytes();
+        let text = String::new();
 
         assert!(parse_text(text).is_none());
     }
 
     #[test]
     fn text() {
-        let text = "This is a test".as_bytes();
+        let text = String::from("This is a test");
 
-        assert_eq!(text, parse_text(text).unwrap());
+        assert_eq!("This is a test", parse_text(text).unwrap());
     }
 }

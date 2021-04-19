@@ -108,7 +108,7 @@ fn print_file_name(file_name: Option<&OsStr>) {
 }
 
 fn print_subtitle(subtitle: SubRip, regex: &Regex) {
-    for line in subtitle.text_from_utf8_lossy() {
+    for line in subtitle.text {
         if let Some(matched) = regex.find(&line) {
             print_match(subtitle.position, &line, &matched);
         }

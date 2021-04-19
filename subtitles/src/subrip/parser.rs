@@ -3,6 +3,7 @@ use super::{
     error::{Error, ErrorKind},
     format::SubRip,
 };
+use encoding_rs::{Decoder, Encoding, UTF_16LE, UTF_8};
 use std::{
     io::{BufRead, BufReader, Read},
     result,
@@ -13,17 +14,18 @@ type ParseResult<T> = result::Result<T, Error>;
 pub struct SubRipParser<T: Read> {
     subtitle: BufReader<T>,
     buffer: Vec<u8>,
+    decoder: Decoder,
 }
 
 impl<T: Read> SubRipParser<T> {
     fn parse_next(&mut self) -> ParseResult<Option<SubRip>> {
-        let position = match self.read_line(true, |line| parse_position(line)) {
+        let position = match self.read_line(parse_position) {
             Ok(Some(position)) => position,
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidPosition, err)),
         };
 
-        let (start, end) = match self.read_line(true, |line| parse_timecode(line)) {
+        let (start, end) = match self.read_line(parse_timecode) {
             Ok(Some((start, end))) => (start, end),
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidTimecode, err)),
@@ -31,7 +33,7 @@ impl<T: Read> SubRipParser<T> {
 
         let mut text = Vec::new();
         loop {
-            match self.read_line(false, |line| Ok(parse_text(line))) {
+            match self.read_line(|line| Ok(parse_text(line))) {
                 Ok(Some(t)) => text.push(t),
                 Ok(None) => break,
                 Err(err) => return Err(Error::new(ErrorKind::InvalidText, err)),
@@ -46,62 +48,83 @@ impl<T: Read> SubRipParser<T> {
         }))
     }
 
-    fn read_line<R, F: FnOnce(&[u8]) -> Result<R>>(
-        &mut self,
-        skip_non_ascii: bool,
-        f: F,
-    ) -> Result<R> {
-        self.subtitle.read_until(b'\n', &mut self.buffer)?;
-        self.trim_end();
-
-        if skip_non_ascii {
-            self.skip_non_ascii();
-        }
-
-        let result = f(&self.buffer);
+    fn read_line<R, F>(&mut self, f: F) -> Result<R>
+    where
+        F: FnOnce(String) -> Result<R>,
+    {
+        let line = self.next_line_string()?;
+        let result = f(line);
 
         if result.is_err() {
-            self.skip_to_next_subtitle();
+            self.skip_to_next_subtitle()?;
         }
 
-        self.buffer.clear();
         result
     }
 
-    fn skip_non_ascii(&mut self) {
-        if let Some(ascii_start) = self.buffer.iter().position(|x| x.is_ascii()) {
-            if ascii_start > 0 {
-                self.buffer = self.buffer.split_off(ascii_start);
-            }
-        }
-    }
-
-    fn trim_end(&mut self) {
-        if self.buffer.ends_with(&[b'\n']) {
-            self.buffer.pop();
-            if self.buffer.ends_with(&[b'\r']) {
-                self.buffer.pop();
-            }
-        }
-    }
-
-    fn skip_to_next_subtitle(&mut self) {
-        while let Ok(read) = self.subtitle.read_until(b'\n', &mut self.buffer) {
-            if (read == 0)
-                | ((read == 1) && self.buffer.ends_with(&[b'\n']))
-                | ((read == 2) && self.buffer.ends_with(&[b'\r', b'\n']))
-            {
+    fn skip_to_next_subtitle(&mut self) -> Result<()> {
+        loop {
+            if self.next_line_string()?.is_empty() {
                 break;
             }
         }
+        Ok(())
+    }
+
+    fn next_line_string(&mut self) -> Result<String> {
+        let buf = self.next_line()?;
+        Ok(self.decode_buf(&buf))
+    }
+
+    fn next_line(&mut self) -> Result<Vec<u8>> {
+        let newline = match self.buffer.iter().position(|x| *x == b'\n') {
+            Some(n) => n + 1,
+            None => {
+                self.fill_buf()?;
+                self.buffer.len()
+            }
+        };
+
+        let buf = self.buffer.drain(..newline).collect();
+        Ok(buf)
+    }
+
+    fn fill_buf(&mut self) -> Result<()> {
+        self.subtitle.read_until(b'\n', &mut self.buffer)?;
+        if self.decoder.encoding() == UTF_16LE {
+            self.read_byte();
+        }
+
+        Ok(())
+    }
+
+    fn read_byte(&mut self) {
+        let mut byte = [0u8; 1];
+        let _ = self.subtitle.read_exact(&mut byte);
+        self.buffer.extend_from_slice(&byte);
+    }
+
+    fn decode_buf(&mut self, buf: &[u8]) -> String {
+        let mut line = String::with_capacity(buf.len());
+        let _ = self.decoder.decode_to_string(&buf, &mut line, false);
+
+        trim_newline(line)
     }
 }
 
 impl<T: Read> From<T> for SubRipParser<T> {
     fn from(subtitle: T) -> Self {
+        let mut subtitle = BufReader::new(subtitle);
+
+        let mut bom = [0u8; 3];
+        let _ = subtitle.read_exact(&mut bom);
+
+        let (encoding, _) = Encoding::for_bom(&bom).unwrap_or((UTF_8, 3));
+
         SubRipParser {
-            subtitle: BufReader::new(subtitle),
-            buffer: Vec::new(),
+            subtitle,
+            buffer: bom.to_vec(),
+            decoder: Encoding::new_decoder_with_bom_removal(encoding),
         }
     }
 }
@@ -120,15 +143,14 @@ mod tests {
     use std::io::Cursor;
 
     #[test]
-    fn skip_dom() {
-        let bom: [u8; 3] = [0xef, 0xbb, 0xbf];
-        let subtitle = "\
+    fn utf_8_with_bom() {
+        let subtitle = b"\
+\xEF\xBB\xBF\
 1433
 01:04:00,705 --> 01:04:02,145
 This is a
-Test"
-            .as_bytes();
-        let subtitle = Cursor::new([&bom, subtitle].concat());
+Test";
+        let subtitle = Cursor::new(subtitle);
 
         let expected = SubRip {
             position: 1433,
@@ -144,15 +166,144 @@ Test"
                 seconds: 2,
                 milliseconds: 145,
             },
-            text: vec![
-                String::from("This is a").into_bytes(),
-                String::from("Test").into_bytes(),
-            ],
+            text: vec![String::from("This is a"), String::from("Test")],
         };
 
         let actual = SubRipParser::from(subtitle).next().unwrap().unwrap();
 
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn utf_16be_with_bom() {
+        let mut bom = vec![b'\xFE', b'\xFF'];
+        let subtitle: Vec<u8> = "\
+1433
+01:04:00,705 --> 01:04:02,145
+This is ą
+Tęst"
+            .encode_utf16()
+            .map(|x| x.to_be_bytes().to_vec())
+            .flatten()
+            .collect();
+
+        bom.extend(subtitle);
+        let subtitle = Cursor::new(bom);
+
+        let expected = SubRip {
+            position: 1433,
+            start: Timecode {
+                hours: 1,
+                minutes: 4,
+                seconds: 0,
+                milliseconds: 705,
+            },
+            end: Timecode {
+                hours: 1,
+                minutes: 4,
+                seconds: 2,
+                milliseconds: 145,
+            },
+            text: vec![String::from("This is ą"), String::from("Tęst")],
+        };
+
+        let actual = SubRipParser::from(subtitle).next().unwrap().unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn utf_16le_with_bom() {
+        let mut bom = vec![b'\xFF', b'\xFE'];
+        let subtitle: Vec<u8> = "\
+1433
+01:04:00,705 --> 01:04:02,145
+This is ą
+Tęst"
+            .encode_utf16()
+            .map(|x| x.to_le_bytes().to_vec())
+            .flatten()
+            .collect();
+
+        bom.extend(subtitle);
+        let subtitle = Cursor::new(bom);
+
+        let expected = SubRip {
+            position: 1433,
+            start: Timecode {
+                hours: 1,
+                minutes: 4,
+                seconds: 0,
+                milliseconds: 705,
+            },
+            end: Timecode {
+                hours: 1,
+                minutes: 4,
+                seconds: 2,
+                milliseconds: 145,
+            },
+            text: vec![String::from("This is ą"), String::from("Tęst")],
+        };
+
+        let actual = SubRipParser::from(subtitle).next().unwrap().unwrap();
+
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn parse_subtitle() {
+        let sub = "\
+1
+01:02:03,456 --> 07:08:09,101
+This is a Test";
+        let mut parser = SubRipParser::from(sub.as_bytes());
+
+        let expected = SubRip {
+            position: 1,
+            start: Timecode {
+                hours: 1,
+                minutes: 2,
+                seconds: 3,
+                milliseconds: 456,
+            },
+            end: Timecode {
+                hours: 7,
+                minutes: 8,
+                seconds: 9,
+                milliseconds: 101,
+            },
+            text: vec![String::from("This is a Test")],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
+    }
+
+    #[test]
+    fn parse_subtitle_cr_lf() {
+        let sub = "\
+1\r\n\
+01:02:03,456 --> 07:08:09,101\r\n\
+This is a Test";
+        let mut parser = SubRipParser::from(sub.as_bytes());
+
+        let expected = SubRip {
+            position: 1,
+            start: Timecode {
+                hours: 1,
+                minutes: 2,
+                seconds: 3,
+                milliseconds: 456,
+            },
+            end: Timecode {
+                hours: 7,
+                minutes: 8,
+                seconds: 9,
+                milliseconds: 101,
+            },
+            text: vec![String::from("This is a Test")],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
     }
 
     #[test]
@@ -185,8 +336,8 @@ that we're free to do anything.";
                 milliseconds: 145,
             },
             text: vec![
-                String::from("It's only after").into_bytes(),
-                String::from("we've lost everything").into_bytes(),
+                String::from("It's only after"),
+                String::from("we've lost everything"),
             ],
         };
         assert_eq!(expected, parser.next().unwrap().unwrap());
@@ -206,7 +357,7 @@ that we're free to do anything.";
                 seconds: 4,
                 milliseconds: 190,
             },
-            text: vec![String::from("that we're free to do anything.").into_bytes()],
+            text: vec![String::from("that we're free to do anything.")],
         };
 
         assert_eq!(expected, parser.next().unwrap().unwrap());
@@ -243,38 +394,7 @@ This is a Test";
                 seconds: 9,
                 milliseconds: 101,
             },
-            text: vec![String::from("This is a Test").into_bytes()],
-        };
-
-        assert_eq!(expected, parser.next().unwrap().unwrap());
-    }
-
-    #[test]
-    fn parse_non_utf8_text() {
-        let text = [b'\xff', b'\x74', b'\x65', b'\x73', b'\x74'];
-        let subtitle = "\
-1
-01:02:03,456 --> 07:08:09,101
-";
-        let subtitle = [subtitle.as_bytes(), &text].concat();
-
-        let mut parser = SubRipParser::from(Cursor::new(subtitle));
-
-        let expected = SubRip {
-            position: 1,
-            start: Timecode {
-                hours: 1,
-                minutes: 2,
-                seconds: 3,
-                milliseconds: 456,
-            },
-            end: Timecode {
-                hours: 7,
-                minutes: 8,
-                seconds: 9,
-                milliseconds: 101,
-            },
-            text: vec![text.to_vec()],
+            text: vec![String::from("This is a Test")],
         };
 
         assert_eq!(expected, parser.next().unwrap().unwrap());

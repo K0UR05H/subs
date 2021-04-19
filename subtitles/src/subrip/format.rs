@@ -1,6 +1,4 @@
-use std::{borrow::Cow, fmt};
-
-pub type Line = Vec<u8>;
+use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct Timecode {
@@ -20,24 +18,11 @@ pub struct SubRip {
     /// The time that the subtitle should disappear.
     pub end: Timecode,
     /// A list of lines in this subtitle.
-    /// note that each line is a byte sequence and should be decoded.
-    pub text: Vec<Line>,
-}
-
-impl SubRip {
-    /// Decode subtitle text to a list of strings
-    pub fn text_from_utf8_lossy(&self) -> Vec<Cow<str>> {
-        self.text
-            .iter()
-            .map(|x| String::from_utf8_lossy(x))
-            .collect()
-    }
+    pub text: Vec<String>,
 }
 
 impl fmt::Display for SubRip {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = self.text_from_utf8_lossy().join("\n");
-
         write!(
             f,
             "\
@@ -53,7 +38,7 @@ impl fmt::Display for SubRip {
             self.end.minutes,
             self.end.seconds,
             self.end.milliseconds,
-            text
+            self.text.join("\n")
         )
     }
 }
@@ -78,10 +63,7 @@ mod tests {
                 seconds: 9,
                 milliseconds: 101,
             },
-            text: vec![
-                String::from("This is a").into_bytes(),
-                String::from("Test").into_bytes(),
-            ],
+            text: vec![String::from("This is a"), String::from("Test")],
         };
 
         let expected = "\
