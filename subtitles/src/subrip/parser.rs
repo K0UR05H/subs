@@ -13,8 +13,7 @@ type ParseResult<T> = result::Result<T, Error>;
 
 pub struct SubRipParser<T: Read> {
     subtitle: BufReader<T>,
-    buffer: Vec<u8>,
-    decoder: Decoder,
+    decoder: Option<Decoder>,
 }
 
 impl<T: Read> SubRipParser<T> {
@@ -52,7 +51,7 @@ impl<T: Read> SubRipParser<T> {
     where
         F: FnOnce(String) -> Result<R>,
     {
-        let line = self.next_line_string()?;
+        let line = self.next_line()?;
         let result = f(line);
 
         if result.is_err() {
@@ -64,67 +63,41 @@ impl<T: Read> SubRipParser<T> {
 
     fn skip_to_next_subtitle(&mut self) -> Result<()> {
         loop {
-            if self.next_line_string()?.is_empty() {
+            if self.next_line()?.is_empty() {
                 break;
             }
         }
         Ok(())
     }
 
-    fn next_line_string(&mut self) -> Result<String> {
-        let buf = self.next_line()?;
-        Ok(self.decode_buf(&buf))
-    }
+    fn next_line(&mut self) -> Result<String> {
+        let mut buf = Vec::new();
+        self.subtitle.read_until(b'\n', &mut buf)?;
 
-    fn next_line(&mut self) -> Result<Vec<u8>> {
-        let newline = match self.buffer.iter().position(|x| *x == b'\n') {
-            Some(n) => n + 1,
-            None => {
-                self.fill_buf()?;
-                self.buffer.len()
-            }
-        };
+        let decoder = self.decoder.get_or_insert_with(|| {
+            let (encoding, _) = Encoding::for_bom(&buf).unwrap_or((UTF_8, 3));
+            Encoding::new_decoder_with_bom_removal(encoding)
+        });
 
-        let buf = self.buffer.drain(..newline).collect();
-        Ok(buf)
-    }
-
-    fn fill_buf(&mut self) -> Result<()> {
-        self.subtitle.read_until(b'\n', &mut self.buffer)?;
-        if self.decoder.encoding() == UTF_16LE {
-            self.read_byte();
+        if decoder.encoding() == UTF_16LE {
+            let mut byte = [0u8; 1];
+            let _ = self.subtitle.read_exact(&mut byte);
+            buf.extend_from_slice(&byte);
         }
 
-        Ok(())
-    }
-
-    fn read_byte(&mut self) {
-        let mut byte = [0u8; 1];
-        let _ = self.subtitle.read_exact(&mut byte);
-        self.buffer.extend_from_slice(&byte);
-    }
-
-    fn decode_buf(&mut self, buf: &[u8]) -> String {
         let mut line = String::with_capacity(buf.len());
-        let _ = self.decoder.decode_to_string(&buf, &mut line, false);
+        let _ = decoder.decode_to_string(&buf, &mut line, false);
+        trim_newline(&mut line);
 
-        trim_newline(line)
+        Ok(line)
     }
 }
 
 impl<T: Read> From<T> for SubRipParser<T> {
     fn from(subtitle: T) -> Self {
-        let mut subtitle = BufReader::new(subtitle);
-
-        let mut bom = [0u8; 3];
-        let _ = subtitle.read_exact(&mut bom);
-
-        let (encoding, _) = Encoding::for_bom(&bom).unwrap_or((UTF_8, 3));
-
         SubRipParser {
-            subtitle,
-            buffer: bom.to_vec(),
-            decoder: Encoding::new_decoder_with_bom_removal(encoding),
+            subtitle: BufReader::new(subtitle),
+            decoder: None,
         }
     }
 }

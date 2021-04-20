@@ -45,15 +45,13 @@ pub fn parse_text(line: String) -> Option<String> {
     }
 }
 
-pub fn trim_newline(mut line: String) -> String {
+pub fn trim_newline(line: &mut String) {
     if line.ends_with('\n') {
         line.pop();
         if line.ends_with('\r') {
             line.pop();
         }
     }
-
-    line
 }
 
 #[cfg(test)]
