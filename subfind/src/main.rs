@@ -1,12 +1,12 @@
 use ansi_term::Color::{Blue, Green, Red};
 use clap::{App, Arg};
-use regex::{Match, Regex};
+use regex::Regex;
 use std::{
     env,
     error::Error,
     ffi::OsStr,
     fs::{self, File},
-    path::{Path, PathBuf},
+    path::Path,
 };
 use subtitles::SubRip;
 
@@ -75,22 +75,22 @@ fn subfind(regex: &Regex, path: impl AsRef<Path>, recursive: bool) -> Result<()>
         if file_type.is_dir() && recursive {
             subfind(regex, entry.path(), true)?;
         } else if file_type.is_file() {
-            find(regex, entry.path())?;
+            find(regex, &entry.path())?;
         }
     }
 
     Ok(())
 }
 
-fn find(regex: &Regex, path: PathBuf) -> Result<()> {
-    let file = File::open(&path)?;
-    let parser = subtitles::open(file);
+fn find(regex: &Regex, path: &Path) -> Result<()> {
+    print_file_name(path);
 
-    print_file_name(path.file_stem());
+    let file = File::open(path)?;
+    let parser = subtitles::open(file);
 
     for entry in parser {
         match entry {
-            Ok(subtitle) => print_subtitle(subtitle, regex),
+            Ok(subtitle) => print_match(subtitle, regex),
             Err(err) => eprintln!("{}: {}", Red.paint("Error"), err),
         }
     }
@@ -98,8 +98,9 @@ fn find(regex: &Regex, path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-fn print_file_name(file_name: Option<&OsStr>) {
-    let file_name = file_name
+fn print_file_name(path: &Path) {
+    let file_name = path
+        .file_stem()
         .unwrap_or_else(|| OsStr::new(""))
         .to_str()
         .unwrap_or("");
@@ -107,20 +108,16 @@ fn print_file_name(file_name: Option<&OsStr>) {
     println!("{}", Blue.paint(file_name));
 }
 
-fn print_subtitle(subtitle: SubRip, regex: &Regex) {
+fn print_match(subtitle: SubRip, regex: &Regex) {
     for line in subtitle.text {
         if let Some(matched) = regex.find(&line) {
-            print_match(subtitle.position, &line, &matched);
+            println!(
+                "{}: {}{}{}",
+                subtitle.position,
+                &line[..matched.start()],
+                Green.paint(&line[matched.start()..matched.end()]),
+                &line[matched.end()..]
+            );
         }
     }
-}
-
-fn print_match(position: usize, text: &str, matched: &Match) {
-    println!(
-        "{}: {}{}{}",
-        position,
-        &text[..matched.start()],
-        Green.paint(&text[matched.start()..matched.end()]),
-        &text[matched.end()..]
-    );
 }
