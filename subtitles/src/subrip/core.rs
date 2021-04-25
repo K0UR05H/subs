@@ -117,6 +117,29 @@ mod tests {
     }
 
     #[test]
+    fn negative_timecode() {
+        let timecode = String::from("00:-1:-58,-240 --> 00:-1:-55,-530");
+
+        let expected_start = Timecode {
+            hours: 0,
+            minutes: -1,
+            seconds: -58,
+            milliseconds: -240,
+        };
+        let expected_end = Timecode {
+            hours: 0,
+            minutes: -1,
+            seconds: -55,
+            milliseconds: -530,
+        };
+
+        let (start, end) = parse_timecode(timecode).unwrap().unwrap();
+
+        assert_eq!(expected_start, start);
+        assert_eq!(expected_end, end);
+    }
+
+    #[test]
     fn timecode() {
         let timecode = String::from("01:04:00,705 --> 01:04:02,145");
 

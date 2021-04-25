@@ -2,10 +2,10 @@ use std::fmt;
 
 #[derive(Debug, PartialEq)]
 pub struct Timecode {
-    pub hours: u8,
-    pub minutes: u8,
-    pub seconds: u8,
-    pub milliseconds: u16,
+    pub hours: i8,
+    pub minutes: i8,
+    pub seconds: i8,
+    pub milliseconds: i16,
 }
 
 /// Representing a SubRip (.srt) file
