@@ -63,7 +63,7 @@ fn main() -> Result<()> {
 fn find_in_stdin(regex: &Regex) {
     let stdin = io::stdin();
     let handle = stdin.lock();
-    find_matches(&regex, handle);
+    find(&regex, handle);
 }
 
 fn find_in_path(regex: &Regex, path: impl AsRef<Path>) -> Result<()> {
@@ -78,13 +78,13 @@ fn find_in_path(regex: &Regex, path: impl AsRef<Path>) -> Result<()> {
     } else if file_type.is_file() {
         print_file_name(path.as_ref());
         let file = File::open(path)?;
-        find_matches(regex, file);
+        find(regex, file);
     }
 
     Ok(())
 }
 
-fn find_matches<T: Read>(regex: &Regex, subtitle: T) {
+fn find<T: Read>(regex: &Regex, subtitle: T) {
     let parser = subtitles::open(subtitle);
 
     for entry in parser {
@@ -107,14 +107,19 @@ fn print_file_name(path: &Path) {
 
 fn print_matches(subtitle: SubRip, regex: &Regex) {
     for line in subtitle.text {
-        if let Some(matched) = regex.find(&line) {
-            println!(
-                "{}: {}{}{}",
-                subtitle.position,
-                &line[..matched.start()],
-                line[matched.start()..matched.end()].green(),
-                &line[matched.end()..]
+        let mut last_uncolored = 0;
+
+        for mat in regex.find_iter(&line) {
+            print!(
+                "{}{}",
+                &line[last_uncolored..mat.start()],
+                line[mat.start()..mat.end()].green()
             );
+            last_uncolored = mat.end();
+        }
+
+        if last_uncolored != 0 {
+            println!("{}", &line[last_uncolored..]);
         }
     }
 }
