@@ -1,5 +1,5 @@
-use ansi_term::Color::{Blue, Green, Red};
 use clap::{App, Arg};
+use crossterm::style::Colorize;
 use regex::Regex;
 use std::{
     env, error,
@@ -90,7 +90,7 @@ fn find_matches<T: Read>(regex: &Regex, subtitle: T) {
     for entry in parser {
         match entry {
             Ok(sub) => print_matches(sub, regex),
-            Err(err) => eprintln!("{}: {}", Red.paint("Error"), err),
+            Err(err) => eprintln!("{}: {}", "Error".red(), err),
         }
     }
 }
@@ -102,7 +102,7 @@ fn print_file_name(path: &Path) {
         .to_str()
         .unwrap_or("");
 
-    println!("{}", Blue.paint(file_name));
+    println!("{}", file_name.blue());
 }
 
 fn print_matches(subtitle: SubRip, regex: &Regex) {
@@ -112,7 +112,7 @@ fn print_matches(subtitle: SubRip, regex: &Regex) {
                 "{}: {}{}{}",
                 subtitle.position,
                 &line[..matched.start()],
-                Green.paint(&line[matched.start()..matched.end()]),
+                line[matched.start()..matched.end()].green(),
                 &line[matched.end()..]
             );
         }
