@@ -1,4 +1,4 @@
-use crossterm::style::Colorize;
+use ansi_term::Color::{Blue, Green, Red};
 use regex::Regex;
 use std::{
     error,
@@ -71,7 +71,7 @@ fn print_file_name(path: &Path) {
         .to_str()
         .unwrap_or("");
 
-    println!("{}", file_name.blue());
+    println!("{}", Blue.paint(file_name));
 }
 
 fn find<T: Read>(subtitle: T, regex: &Regex) {
@@ -80,7 +80,7 @@ fn find<T: Read>(subtitle: T, regex: &Regex) {
     for entry in parser {
         match entry {
             Ok(sub) => print_matches(sub, regex),
-            Err(err) => eprintln!("{}: {}", "Error".red(), err),
+            Err(err) => eprintln!("{}: {}", Red.paint("Error"), err),
         }
     }
 }
@@ -93,7 +93,7 @@ fn print_matches(subtitle: SubRip, regex: &Regex) {
             print!(
                 "{}{}",
                 &line[last_uncolored..mat.start()],
-                line[mat.start()..mat.end()].green()
+                Green.paint(&line[mat.start()..mat.end()])
             );
             last_uncolored = mat.end();
         }

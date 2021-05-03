@@ -12,5 +12,5 @@ license = "MIT OR Apache-2.0"
 subtitles = { path = "../subtitles" }
 
 clap = "~2.33"
-crossterm = "0.19"
+ansi_term = "0.12"
 regex = "1"
