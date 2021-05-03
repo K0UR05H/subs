@@ -8,6 +8,16 @@ pub struct Timecode {
     pub milliseconds: i16,
 }
 
+impl fmt::Display for Timecode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:02}:{:02}:{:02},{:03}",
+            self.hours, self.minutes, self.seconds, self.milliseconds
+        )
+    }
+}
+
 /// Representing a SubRip (.srt) file
 #[derive(Debug, PartialEq)]
 pub struct SubRip {
@@ -27,17 +37,11 @@ impl fmt::Display for SubRip {
             f,
             "\
 {}
-{:02}:{:02}:{:02},{:03} --> {:02}:{:02}:{:02},{:03}
+{} --> {}
 {}",
             self.position,
-            self.start.hours,
-            self.start.minutes,
-            self.start.seconds,
-            self.start.milliseconds,
-            self.end.hours,
-            self.end.minutes,
-            self.end.seconds,
-            self.end.milliseconds,
+            self.start,
+            self.end,
             self.text.join("\n")
         )
     }
@@ -48,7 +52,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display() {
+    fn display_timecode() {
+        let time = Timecode {
+            hours: 1,
+            minutes: 2,
+            seconds: 3,
+            milliseconds: 456,
+        };
+        let expected = "01:02:03,456";
+
+        assert_eq!(expected, format!("{}", time));
+    }
+
+    #[test]
+    fn display_subtitle() {
         let sub = SubRip {
             position: 1,
             start: Timecode {
