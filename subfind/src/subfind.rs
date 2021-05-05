@@ -2,7 +2,6 @@ use ansi_term::Color::{Blue, Green, Red};
 use regex::Regex;
 use std::{
     error,
-    ffi::OsStr,
     fs::{self, File},
     io::{self, Read},
     path::Path,
@@ -20,58 +19,36 @@ pub struct Config<'a> {
 pub fn run(config: Config) -> Result<()> {
     for path in config.paths {
         if path == "-" {
-            from_stdin(&config.regex);
+            find(io::stdin(), &config.regex);
         } else {
-            from_path(path, &config.regex)?;
+            find_in_path(path, &config.regex)?;
         }
     }
     Ok(())
 }
 
-fn from_stdin(regex: &Regex) {
-    let stdin = io::stdin();
-    let handle = stdin.lock();
-    find(handle, &regex);
-}
-
-fn from_path(path: impl AsRef<Path>, regex: &Regex) -> Result<()> {
+fn find_in_path(path: impl AsRef<Path>, regex: &Regex) -> Result<()> {
     let file_type = fs::metadata(&path)?.file_type();
 
     if file_type.is_dir() {
-        from_dir(path, regex)?;
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
+            find_in_path(entry.path(), regex)?;
+        }
     } else if file_type.is_file() {
-        from_file(path, regex)?;
+        print_file_name(path.as_ref());
+        find(File::open(path)?, regex);
     }
-
-    Ok(())
-}
-
-fn from_dir(path: impl AsRef<Path>, regex: &Regex) -> Result<()> {
-    let entries = fs::read_dir(&path)?;
-    for entry in entries {
-        let entry = entry?;
-        from_path(entry.path(), regex)?;
-    }
-
-    Ok(())
-}
-
-fn from_file(path: impl AsRef<Path>, regex: &Regex) -> Result<()> {
-    print_file_name(path.as_ref());
-    let file = File::open(path)?;
-    find(file, &regex);
 
     Ok(())
 }
 
 fn print_file_name(path: &Path) {
-    let file_name = path
-        .file_stem()
-        .unwrap_or_else(|| OsStr::new(""))
-        .to_str()
-        .unwrap_or("");
-
-    println!("{}", Blue.paint(file_name));
+    if let Some(stem) = path.file_stem() {
+        if let Some(stem_str) = stem.to_str() {
+            println!("{}", Blue.paint(stem_str))
+        }
+    }
 }
 
 fn find<T: Read>(subtitle: T, regex: &Regex) {
