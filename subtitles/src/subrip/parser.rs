@@ -79,10 +79,10 @@ impl<T: Read> SubRipParser<T> {
             Encoding::new_decoder_with_bom_removal(encoding)
         });
 
+        // in this case new line character is \x0A\x00
+        // and we have already read until \x0A
         if decoder.encoding() == UTF_16LE {
-            let mut byte = [0u8; 1];
-            let _ = self.subtitle.read_exact(&mut byte);
-            buf.extend_from_slice(&byte);
+            self.subtitle.read_until(b'\x00', &mut buf)?;
         }
 
         let mut line = String::with_capacity(buf.len());
