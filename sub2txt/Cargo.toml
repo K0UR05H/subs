@@ -1,0 +1,13 @@
+[package]
+name = "sub2txt"
+version = "0.1.0"
+authors = ["k0ur0x <kourox@protonmail.com>"]
+edition = "2018"
+description = "Convert subtitles to plain text"
+license = "MIT OR Apache-2.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+subtitles = { path = "../subtitles" }
+clap = "~2.33"
