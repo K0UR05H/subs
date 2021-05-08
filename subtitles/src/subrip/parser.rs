@@ -18,22 +18,35 @@ pub struct SubRipParser<T: Read> {
 
 impl<T: Read> SubRipParser<T> {
     fn parse_next(&mut self) -> ParseResult<Option<SubRip>> {
-        let position = match self.read_line(parse_position) {
-            Ok(Some(position)) => position,
+        // Parse position
+        let line = match self.skip_empty_lines() {
+            Ok(Some(line)) => line,
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidPosition, err)),
         };
+        let position =
+            parse_position(line).map_err(|err| Error::new(ErrorKind::InvalidPosition, err))?;
 
-        let (start, end) = match self.read_line(parse_timecode) {
-            Ok(Some((start, end))) => (start, end),
+        // Parse timecode
+        let line = match self.skip_empty_lines() {
+            Ok(Some(line)) => line,
             Ok(None) => return Ok(None),
             Err(err) => return Err(Error::new(ErrorKind::InvalidTimecode, err)),
         };
+        let (start, end) =
+            parse_timecode(line).map_err(|err| Error::new(ErrorKind::InvalidTimecode, err))?;
 
+        // Parse text
         let mut text = Vec::new();
         loop {
-            match self.read_line(|line| Ok(parse_text(line))) {
-                Ok(Some(t)) => text.push(t),
+            match self.next_line() {
+                Ok(Some(line)) => {
+                    if line.is_empty() {
+                        break;
+                    } else {
+                        text.push(line)
+                    }
+                }
                 Ok(None) => break,
                 Err(err) => return Err(Error::new(ErrorKind::InvalidText, err)),
             }
@@ -47,30 +60,20 @@ impl<T: Read> SubRipParser<T> {
         }))
     }
 
-    fn read_line<R, F>(&mut self, f: F) -> Result<R>
-    where
-        F: FnOnce(String) -> Result<R>,
-    {
-        let line = self.next_line()?;
-        let result = f(line);
-
-        if result.is_err() {
-            self.skip_to_next_subtitle()?;
-        }
-
-        result
-    }
-
-    fn skip_to_next_subtitle(&mut self) -> Result<()> {
+    fn skip_empty_lines(&mut self) -> Result<Option<String>> {
         loop {
-            if self.next_line()?.is_empty() {
-                break;
+            match self.next_line()? {
+                Some(line) => {
+                    if !line.is_empty() {
+                        break Ok(Some(line));
+                    }
+                }
+                None => break Ok(None),
             }
         }
-        Ok(())
     }
 
-    fn next_line(&mut self) -> Result<String> {
+    fn next_line(&mut self) -> Result<Option<String>> {
         let mut buf = Vec::new();
         self.subtitle.read_until(b'\n', &mut buf)?;
 
@@ -85,11 +88,15 @@ impl<T: Read> SubRipParser<T> {
             self.subtitle.read_until(b'\x00', &mut buf)?;
         }
 
-        let mut line = String::with_capacity(buf.len());
-        let _ = decoder.decode_to_string(&buf, &mut line, false);
-        trim_newline(&mut line);
+        if buf.is_empty() {
+            Ok(None)
+        } else {
+            let mut line = String::with_capacity(buf.len());
+            let _ = decoder.decode_to_string(&buf, &mut line, false);
+            trim_newline(&mut line);
 
-        Ok(line)
+            Ok(Some(line))
+        }
     }
 }
 
@@ -340,15 +347,15 @@ that we're free to do anything.";
     }
 
     #[test]
-    fn skip_invalid_subtitle() {
+    fn invalid_subtitle() {
         let sub = "\
 1
 00:00:00,000
-Invalid
 
 2
 01:02:03,456 --> 07:08:09,101
 This is a Test";
+
         let mut parser = SubRipParser::from(sub.as_bytes());
 
         assert!(parser.next().unwrap().is_err());
@@ -368,6 +375,62 @@ This is a Test";
                 milliseconds: 101,
             },
             text: vec![String::from("This is a Test")],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
+    }
+
+    #[test]
+    fn empty_lines() {
+        let sub = "\
+1
+00:00:00,000 --> 00:00:01,000
+test
+
+
+
+2
+00:00:01,000 --> 00:00:02,000
+test";
+
+        let mut parser = SubRipParser::from(sub.as_bytes());
+
+        // First
+        let expected = SubRip {
+            position: 1,
+            start: Timecode {
+                hours: 0,
+                minutes: 0,
+                seconds: 0,
+                milliseconds: 0,
+            },
+            end: Timecode {
+                hours: 0,
+                minutes: 0,
+                seconds: 1,
+                milliseconds: 0,
+            },
+            text: vec![String::from("test")],
+        };
+
+        assert_eq!(expected, parser.next().unwrap().unwrap());
+
+        // Second
+        let expected = SubRip {
+            position: 2,
+            start: Timecode {
+                hours: 0,
+                minutes: 0,
+                seconds: 1,
+                milliseconds: 0,
+            },
+            end: Timecode {
+                hours: 0,
+                minutes: 0,
+                seconds: 2,
+                milliseconds: 0,
+            },
+            text: vec![String::from("test")],
         };
 
         assert_eq!(expected, parser.next().unwrap().unwrap());
