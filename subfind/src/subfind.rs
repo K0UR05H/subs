@@ -63,19 +63,18 @@ fn find<T: Read>(subtitle: T, regex: &Regex) {
 }
 
 fn print_matches(subtitle: SubRip, regex: &Regex) {
-    let text = subtitle.text.join("\n");
-    let mut last_uncolored = 0;
+    for line in subtitle.text {
+        let mut last_match = 0;
+        for reg_match in regex.find_iter(&line) {
+            let unmatched = &line[last_match..reg_match.start()];
+            let matched = reg_match.as_str();
+            print!("{}{}", unmatched, Green.paint(matched));
 
-    for mat in regex.find_iter(&text) {
-        print!(
-            "{}{}",
-            &text[last_uncolored..mat.start()],
-            Green.paint(&text[mat.start()..mat.end()])
-        );
-        last_uncolored = mat.end();
-    }
+            last_match = reg_match.end();
+        }
 
-    if last_uncolored != 0 {
-        println!("{}", &text[last_uncolored..]);
+        if last_match > 0 {
+            println!("{}", &line[last_match..]);
+        }
     }
 }
